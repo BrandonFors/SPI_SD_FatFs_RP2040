@@ -86,10 +86,64 @@ uint8_t send_byte(uint8_t byte){
 /*Select SD Card*/
 
 void sd_select(){
+  //pull cs low to activate
   gpio_put(PIN_CS, 0);
+  //send dummy byte to give sd card clock cycles for processing
+  send_byte(0xFF); 
 }
 
 void sd_deselect(){
+  //pull cs high to deactivate
   gpio_put(PIN_CS, 1);
+  //send dummy byte to give sd card clock cycles for processing
+  send_byte(0xFF);
+}
+
+
+
+/*Send a Command*/
+/*Each "Command" is 48 bits with a breakdown as follows
+  Start bits [47-46]: '01'
+  Command number [45-40]: A 6 bit command number to indicate the meaning of following data
+  Argument [39-8]: Any data needed to execute indicated command (a lot of the time, this data is NULL)
+  Cyclic Redundancy Check (CRC) [7-1]: Used by the SD to verify the integrity of a command it recieves (often ignored by the SD)
+  Stop bit [0]: Indicates the end of transmission 
+
+*/
+
+uint8_t send_cmd(uint8_t cmd, uint32_t arg){
+  //deselect and select to cleanly end any previous actions
+  sd_deselect();
+  sd_select();  
+  //Send start bits and cmd
+  send_byte(0x40 | cmd);
+  //send argument in 8 bit increments by shifting the desired part
+  //to the first 8 bits and "extracting" the first 8 bits
+  send_byte((uint8_t)((arg >> 24) & 0xFF));
+  send_byte((uint8_t)((arg >> 16) & 0xFF));
+  send_byte((uint8_t)((arg >> 8) & 0xFF));
+  send_byte((uint8_t)((arg >> 0) & 0xFF));
+
+  //Send 8 bit CRC if command requires it (only required for SPI init w/ CMD0 and CMD8) 
+  //Otherwise send garbage and the stop bit
+  if(cmd == CMD0){
+    send_byte(0x95);
+  }else if(cmd == CMD8){
+    send_byte(0x87);
+  }else{
+    send_byte(0xFF);
+  }
+
+  //toggle the clock and wait for a command response
+  //requires the MOSI line to be high
+  //will exit on error if not gotten in 10 tries
+  int n = 10;
+  uint8_t res = send_byte(0xFF);
+  n--;
+  while (res == 0xFF && n > 0){ //a response will have a leading 0 
+    res = send_byte(0xFF);
+    n--;
+  } 
+  return res;
 }
 

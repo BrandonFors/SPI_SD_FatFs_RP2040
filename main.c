@@ -10,15 +10,8 @@ int main() {
   stdio_init_all();
 
   init_sd_spi();
-  
-  while(1){
-    printf("Sending Byte\n");
-    sd_select();
-    sleep_ms(10);
-    send_byte(0xAA);
-    sleep_ms(10);
-    sd_deselect();
-    sleep_ms(1000);
-  }
+  sleep_ms(5000);
 
+  printf("Sending CMD0\n");
+  send_cmd(0x00, 0x00000000);
 }

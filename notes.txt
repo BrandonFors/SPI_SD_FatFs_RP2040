@@ -1,0 +1,7 @@
+Helpful sites:
+
+About SD SPI:
+https://www.dejazzer.com/ee379/lecture_notes/lec12_sd_card.pdf
+
+ChaN FatFS:
+https://www.elm-chan.org/fsw/ff/
