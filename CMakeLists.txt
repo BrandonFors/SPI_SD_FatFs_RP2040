@@ -35,7 +35,7 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(spi_sd_rp2040 main.c )
+add_executable(spi_sd_rp2040 main.c spi_sd_rp2040.c)
 
 pico_set_program_name(spi_sd_rp2040 "spi_sd_rp2040")
 pico_set_program_version(spi_sd_rp2040 "0.1")
@@ -51,11 +51,13 @@ target_link_libraries(spi_sd_rp2040
 # Add the standard include files to the build
 target_include_directories(spi_sd_rp2040 PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
+        ${CMAKE_CURRENT_LIST_DIR}/ff16/source/
 )
 
 # Add any user requested libraries
 target_link_libraries(spi_sd_rp2040 
         hardware_spi
+        hardware_gpio
         )
 
 pico_add_extra_outputs(spi_sd_rp2040)

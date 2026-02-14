@@ -1,5 +1,11 @@
+#include "ff.h"
 #include "diskio.h"
+#include <stdbool.h>
+#include <stdint.h>
+#include "pico/stdlib.h"
+#include "hardware/gpio.h"
 #include "hardware/spi.h"
+#include "pico/time.h"
 
 // SPI Defines
 // We are going to use SPI 0, and allocate it to the following GPIO pins
@@ -34,6 +40,9 @@
 #define CMD58	(58)		/* READ_OCR */
 
 
+#define slow_baud 400*1000
+
+
 static volatile DSTATUS Stat = STA_NOINIT;	/* Physical drive status */
 static volatile UINT Timer1, Timer2;		/* 1kHz decrement timer stopped at zero (disk_timerproc()) */
 
@@ -45,74 +54,42 @@ static BYTE CardType;	/* Card type flags */
 /* SPI controls for RP2040                                               */
 /*-----------------------------------------------------------------------*/
 
-static void init_spi(void)
+void init_sd_spi(void)
 {
-    // SPI initialisation. This example will use SPI at 1MHz.
-    spi_init(SPI_PORT, 400*1000);
-    gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
-    gpio_set_function(PIN_CS,   GPIO_FUNC_SIO);
-    gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI);
-    gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
-    
-    // Chip select is active-low, so we'll initialise it to a driven-high state
-    gpio_set_dir(PIN_CS, GPIO_OUT);
-    gpio_put(PIN_CS, 1);
+  // SPI initialisation. This example will use SPI at 1MHz.
+  spi_init(SPI_PORT, slow_baud);
+  gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
+  gpio_set_function(PIN_CS,   GPIO_FUNC_SIO);
+  gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI);
+  gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
+  
+  // Chip select is active-low, so we'll initialise it to a driven-high state
+  gpio_set_dir(PIN_CS, GPIO_OUT);
+  gpio_put(PIN_CS, 1);
+  
+  sleep_ms(10);
+
 }
 
+/*Send a byte*/
+//this function will be used in any scenario that requires a byte long transfer
+//it can also be used to send garbage over MOSI to cycle the clock for the sd card 
+uint8_t send_byte(uint8_t byte){
+  
+  uint8_t res = 0;
 
+  spi_write_read_blocking(SPI_PORT, &byte, &res, 1);
 
-DSTATUS disk_initialize (
-	BYTE drv		/* Physical drive number (0) */
-)
-{
-  return Stat;
+  return res;
 }
 
+/*Select SD Card*/
 
-/*-----------------------------------------------------------------------*/
-/* Read sector(s)                                                        */
-/*-----------------------------------------------------------------------*/
-
-
-DRESULT disk_read (
-	BYTE drv,		/* Physical drive number (0) */
-	BYTE *buff,		/* Pointer to the data buffer to store read data */
-	LBA_t sector,	/* Start sector number (LBA) */
-	UINT count		/* Number of sectors to read (1..128) */
-)
-{
-
-	return count ? RES_ERROR : RES_OK;	/* Return result */
+void sd_select(){
+  gpio_put(PIN_CS, 0);
 }
 
-/*-----------------------------------------------------------------------*/
-/* Write sector(s)                                                       */
-/*-----------------------------------------------------------------------*/
-
-#if FF_FS_READONLY == 0
-DRESULT disk_write (
-	BYTE drv,			/* Physical drive number (0) */
-	const BYTE *buff,	/* Ponter to the data to write */
-	LBA_t sector,		/* Start sector number (LBA) */
-	UINT count			/* Number of sectors to write (1..128) */
-)
-{
-
-  return count ? RES_ERROR : RES_OK;	/* Return result */
+void sd_deselect(){
+  gpio_put(PIN_CS, 1);
 }
-#endif
 
-
-/*-----------------------------------------------------------------------*/
-/* Miscellaneous drive controls other than data read/write               */
-/*-----------------------------------------------------------------------*/
-
-DRESULT disk_ioctl (
-	BYTE drv,		/* Physical drive number (0) */
-	BYTE cmd,		/* Control command code */
-	void *buff		/* Pointer to the conrtol data */
-)
-{
-
-	return res;
-}
