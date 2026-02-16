@@ -20,17 +20,17 @@
 /* MMC/SD command */
 #define CMD0	(0)			/* GO_IDLE_STATE */
 #define CMD1	(1)			/* SEND_OP_COND (MMC) */
-#define	ACMD41	(0x80+41)	/* SEND_OP_COND (SDC) */
+#define	ACMD41 (41)	/* SEND_OP_COND (SDC) */
 #define CMD8	(8)			/* SEND_IF_COND */
 #define CMD9	(9)			/* SEND_CSD */
 #define CMD10	(10)		/* SEND_CID */
 #define CMD12	(12)		/* STOP_TRANSMISSION */
-#define ACMD13	(0x80+13)	/* SD_STATUS (SDC) */
+#define ACMD13	(13)	/* SD_STATUS (SDC) */
 #define CMD16	(16)		/* SET_BLOCKLEN */
 #define CMD17	(17)		/* READ_SINGLE_BLOCK */
 #define CMD18	(18)		/* READ_MULTIPLE_BLOCK */
 #define CMD23	(23)		/* SET_BLOCK_COUNT (MMC) */
-#define	ACMD23	(0x80+23)	/* SET_WR_BLK_ERASE_COUNT (SDC) */
+#define	ACMD23	(23)	/* SET_WR_BLK_ERASE_COUNT (SDC) */
 #define CMD24	(24)		/* WRITE_BLOCK */
 #define CMD25	(25)		/* WRITE_MULTIPLE_BLOCK */
 #define CMD32	(32)		/* ERASE_ER_BLK_START */
@@ -43,9 +43,8 @@
 #define slow_baud 400*1000
 
 
-static volatile DSTATUS Stat = STA_NOINIT;	/* Physical drive status */
+static volatile DSTATUS SD_Status = STA_NOINIT;	/* Physical drive status */
 static volatile UINT Timer1, Timer2;		/* 1kHz decrement timer stopped at zero (disk_timerproc()) */
-
 static BYTE CardType;	/* Card type flags */
 
 
@@ -90,6 +89,8 @@ void sd_select(){
   gpio_put(PIN_CS, 0);
   //send dummy byte to give sd card clock cycles for processing
   send_byte(0xFF); 
+  //makes sure final clock cycle finishes before returning
+  while (spi_is_busy(SPI_PORT));
 }
 
 void sd_deselect(){
@@ -97,8 +98,11 @@ void sd_deselect(){
   gpio_put(PIN_CS, 1);
   //send dummy byte to give sd card clock cycles for processing
   send_byte(0xFF);
+  //makes sure final clock cycle finishes before returning
+  while (spi_is_busy(SPI_PORT));
 }
 
+/*********************MAY NEED TO CREATE A WAIT UNTIL READY FUNCTION TO ACCOUNT FOR R1b responses (give sd card clk cycles so it can finish) */
 
 
 /*Send a Command*/
@@ -147,3 +151,87 @@ uint8_t send_cmd(uint8_t cmd, uint32_t arg){
   return res;
 }
 
+//disk initialize function
+//n is used throughout this function to indicate 
+DSTATUS disk_initialize (BYTE pdrv){
+  // A flowchart for the initialization process: https://www.dejazzer.com/ee379/lecture_notes/lec12_sd_card.pdf
+  //will hold data for init CMDS that have an ocr component in their response
+  uint8_t ocr[4];
+  uint8_t sd_type;
+  
+  if (pdrv) return STA_NOINIT;
+  init_sd_spi();
+
+  if(SD_Status & STA_NODISK) return SD_Status;
+
+  //80 clock cycles to prep 
+  for(uint8_t i = 0; i<10; i++){
+    send_byte(0xFF);
+  }
+  //initialize sd_type to be 0
+  sd_type = 0; 
+
+  //set number of tries for CMD0 to 3
+  uint8_t n = 3;
+
+  //attempt to send the first command n times
+  while(send_cmd(CMD0, 0) != 0x01 && n-- > 0);
+  //if CMD0 failed, return STA_NOINIT according Chan FatFS
+  if(n <= 0){
+    SD_Status = STA_NOINIT;
+    return SD_Status;
+  }
+
+  //try CMD8 and check to see if the response is valid with no illegal flags
+  if(send_cmd(CMD8, 0x1AA) == 0x01){
+    spi_read_blocking(SPI_PORT, 0xFF, ocr, 4);
+    if (ocr[2] == 0x01 && ocr[3] == 0xAA) {
+      //the card is of type SDCv2+ in this case	
+      //leading command of initialization using ACMD	
+      send_cmd(CMD55,0);
+      //ACMD command with high capacity bit set 
+      send_cmd(ACMD41, 0);
+      //request to read ocr
+      send_cmd(CMD58, 0);
+      //read in ocr
+      spi_read_blocking(SPI_PORT, 0xFF, ocr, 4);
+      //if the high capacity bit is set, we have an SDCv2 card with HC or XC which means we need to address by block of 521 bytes
+      //otherwise we have a standard SDCv2
+      sd_type = (ocr[0] & 0x40) ? CT_SDC2 | CT_BLOCK : CT_SDC2;
+
+    }
+
+  //try  CMD58 and check if CMD58 had an okay response
+  }else if(send_cmd(CMD58, 0) == 0x01){
+    //card is of type SDCv1
+    spi_read_blocking(SPI_PORT, 0xFF, ocr, 4);
+    //check if card supports 2.7-3.3v
+    //different ocr for SDCv1
+    if(ocr[3]){
+      //notifies SD of ACMD
+      send_cmd(CMD55,0);
+      //send ACMD
+      send_cmd(ACMD41,0);
+      sd_type = CT_SDC1;
+    }
+  }
+
+  if(sd_type){ //success
+    SD_Status &= ~SD_Status;
+  }else{ // Init Failed
+    SD_Status = STA_NOINIT;
+  }
+
+  return SD_Status;
+
+}
+
+
+DSTATUS disk_status (
+	BYTE pdrv		//should only ever be 0
+)
+{
+	if (pdrv) return STA_NOINIT;	// checks if drv is 0
+
+	return SD_Status;	//returns stored status
+}

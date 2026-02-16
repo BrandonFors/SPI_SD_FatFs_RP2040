@@ -70,6 +70,13 @@ DRESULT disk_ioctl (BYTE pdrv, BYTE cmd, void* buff);
 #define ATA_GET_MODEL		21	/* Get model name */
 #define ATA_GET_SN			22	/* Get serial number */
 
+/* SD card type flags */
+#define CT_SDC1		0x02		/* SDC ver 1 */
+#define CT_SDC2		0x04		/* SDC ver 2+ */
+#define CT_SDC		0x0C		/* SDC */
+#define CT_BLOCK	0x10		/* Block addressing */
+
+
 #ifdef __cplusplus
 }
 #endif
