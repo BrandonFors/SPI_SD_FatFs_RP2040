@@ -190,7 +190,11 @@ DSTATUS disk_initialize (BYTE pdrv){
       //leading command of initialization using ACMD	
       send_cmd(CMD55,0);
       //ACMD command with high capacity bit set 
-      send_cmd(ACMD41, 0);
+      uint8_t adcm_res = send_cmd(ACMD41, (1UL << 30));
+      while(adcm_res && 0x01){ //while the card is still idle, send CMD55 and ACMD41 again
+        send_cmd(CMD55,0);
+        adcm_res = send_cmd(ACMD41, (1UL << 30));
+      }
       //request to read ocr
       send_cmd(CMD58, 0);
       //read in ocr
@@ -210,8 +214,11 @@ DSTATUS disk_initialize (BYTE pdrv){
     if(ocr[3]){
       //notifies SD of ACMD
       send_cmd(CMD55,0);
-      //send ACMD
-      send_cmd(ACMD41,0);
+      uint8_t adcm_res = send_cmd(ACMD41, (1UL << 30));
+      while(adcm_res && 0x01){ //while the card is still idle, send CMD55 and ACMD41 again
+        send_cmd(CMD55,0);
+        adcm_res = send_cmd(ACMD41, (1UL << 30));
+      }
       sd_type = CT_SDC1;
     }
   }
