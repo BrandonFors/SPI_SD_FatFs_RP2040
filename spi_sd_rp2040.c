@@ -1,6 +1,5 @@
 #include "ff.h"
 #include "diskio.h"
-#include <stdbool.h>
 #include <stdint.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
@@ -70,6 +69,8 @@ void init_sd_spi(void)
 
 }
 
+
+
 /*Send a byte*/
 //this function will be used in any scenario that requires a byte long transfer
 //it can also be used to send garbage over MOSI to cycle the clock for the sd card 
@@ -82,16 +83,16 @@ uint8_t send_byte(uint8_t byte){
   return res;
 }
 
+int wait_sd_ready(){ // 1 if success and 0 if fail
+  uint8_t res = send_byte(0xFF);
+  while(res != 0xFF){
+    res = send_byte(0xFF);
+  }
+  return 1;
+}
+
 /*Select SD Card*/
 
-void sd_select(){
-  //pull cs low to activate
-  gpio_put(PIN_CS, 0);
-  //send dummy byte to give sd card clock cycles for processing
-  send_byte(0xFF); 
-  //makes sure final clock cycle finishes before returning
-  while (spi_is_busy(SPI_PORT));
-}
 
 void sd_deselect(){
   //pull cs high to deactivate
@@ -102,7 +103,21 @@ void sd_deselect(){
   while (spi_is_busy(SPI_PORT));
 }
 
-/*********************MAY NEED TO CREATE A WAIT UNTIL READY FUNCTION TO ACCOUNT FOR R1b responses (give sd card clk cycles so it can finish) */
+int sd_select(){
+  //pull cs low to activate
+  gpio_put(PIN_CS, 0);
+  //send dummy byte to give sd card clock cycles for processing
+  send_byte(0xFF); 
+  //makes sure final clock cycle finishes before returning
+  while (spi_is_busy(SPI_PORT));
+  if(wait_sd_ready()) return 1;
+
+  sd_deselect();
+  return 0;
+}
+
+
+
 
 
 /*Send a Command*/
@@ -116,9 +131,14 @@ void sd_deselect(){
 */
 
 uint8_t send_cmd(uint8_t cmd, uint32_t arg){
-  //deselect and select to cleanly end any previous actions
-  sd_deselect();
-  sd_select();  
+  
+  //deselect and select to cleanly end any previous actions if CMD12 is not sent
+  //we don't want to reassert CS to interrupt a transaction
+  if(cmd != CMD12){
+    sd_deselect();
+    sd_select();
+  }
+  
   //Send start bits and cmd
   send_byte(0x40 | cmd);
   //send argument in 8 bit increments by shifting the desired part
@@ -138,21 +158,80 @@ uint8_t send_cmd(uint8_t cmd, uint32_t arg){
     send_byte(0xFF);
   }
 
+  // discard garbage byte that comes after sending CMD12
+  if (cmd == CMD12) send_byte(0xFF);
+
   //toggle the clock and wait for a command response
   //requires the MOSI line to be high
   //will exit on error if not gotten in 10 tries
   int n = 10;
   uint8_t res = send_byte(0xFF);
   n--;
-  while (res == 0xFF && n > 0){ //a response will have a leading 0 
+  //while tries are left and the leading bit is 1
+  //leading 0 indicates a response
+  while ((res & 0x80) && n > 0){ //a response will have a leading 0 
     res = send_byte(0xFF);
     n--;
   } 
   return res;
 }
 
+// Needed?
+// uint8_t send_multi_bytes(
+//   const uint8_t *buff,
+//   uint8_t len,
+// ){
+
+
+// }
+
+//writes a data packet: see -> https://elm-chan.org/docs/mmc/mmc_e.html
+uint8_t write_block( // returns 1 for success and 0 for fail
+  const uint8_t *buff,
+  uint8_t token
+){
+  //need to check to see if SD is ready to recieve with included timeout
+  if(!wait_sd_ready()) return 0;
+
+  send_byte(token);
+  //send data if the token was not a stop transmission token
+  if(token != 0xFD){
+    spi_write_blocking(SPI_PORT, buff, 512); //writes 512 bytes (fixed size standard) 
+    //send dummy crc
+    send_byte(0xFF);
+    send_byte(0xFF);
+    //get response byte
+    uint8_t resp = send_byte(0xFF);
+  if ((resp & 0x1F) != 0x05) return 0;
+  }
+  
+  return 1;
+}
+
+//reads a data packed: see -> https://elm-chan.org/docs/mmc/mmc_e.html
+uint8_t read_block( // returns 1 for success and 0 for fail
+  uint8_t *buff,
+  int len
+){
+  //add har dware timer timeout functionality
+	//read until start token squired
+  uint8_t token = send_byte(0xFF);
+  while(token == 0xFF){
+    token = send_byte(0xFF);
+  }
+  if(token != 0xFE) return 0;
+  //read bytes
+  spi_read_blocking(SPI_PORT, 0xFF, buff, len);
+  // get rid of crc
+  send_byte(0xFF);
+  send_byte(0xFF); 
+
+  return 1;
+}
+
+
+
 //disk initialize function
-//n is used throughout this function to indicate 
 DSTATUS disk_initialize (BYTE pdrv){
   // A flowchart for the initialization process: https://www.dejazzer.com/ee379/lecture_notes/lec12_sd_card.pdf
   //will hold data for init CMDS that have an ocr component in their response
@@ -224,7 +303,7 @@ DSTATUS disk_initialize (BYTE pdrv){
   }
 
   if(sd_type){ //success
-    SD_Status &= ~SD_Status;
+    SD_Status &= ~STA_NOINIT; // clear STA_NOINIT flag
   }else{ // Init Failed
     SD_Status = STA_NOINIT;
   }
@@ -234,11 +313,67 @@ DSTATUS disk_initialize (BYTE pdrv){
 }
 
 
-DSTATUS disk_status (
-	BYTE pdrv		//should only ever be 0
-)
-{
+DSTATUS disk_status (BYTE pdrv){ //pdrv should only ever be 0
+
 	if (pdrv) return STA_NOINIT;	// checks if drv is 0
 
 	return SD_Status;	//returns stored status
+}
+
+DRESULT disk_write (
+  BYTE pdrv,        // Physical drive num -> always 0
+  const BYTE* buff, // pointer to a byte buffer of size count
+  LBA_t sector,     // start sector number in LBA
+  UINT count        // size of byte buffer
+){
+  DWORD sect = (DWORD)sector;
+
+	if (pdrv || !count) return RES_PARERR;		/* Check parameter */
+	if (SD_Status & STA_NOINIT) return RES_NOTRDY;	/* Check drive status */
+	if (SD_Status & STA_PROTECT) return RES_WRPRT;	/* Check write protect */
+
+  return RES_OK;
+
+}
+
+
+DRESULT disk_read (
+  BYTE pdrv,     /* [IN] Physical drive number */
+  BYTE* buff,    /* [OUT] Pointer to the read data buffer */
+  LBA_t sector,  /* [IN] Start sector number */
+  UINT count     /* [IN] Number of sectros to read */
+){
+
+  if (pdrv || !count) return RES_PARERR;		//check for valid parameters
+	if (SD_Status & STA_NOINIT) return RES_NOTRDY;	//Check to see if drive is ready
+
+  if (!(CardType & CT_BLOCK)) sector *= 512;	// Converts from LBA to BA for non block addressed cards
+  
+  //decide if we need to send the cmd for multi block or single block read
+  if(count == 1){
+    if(send_cmd(CMD17, sector) == 0x00 && read_block(buff, 512)){
+      count = 0;
+    }
+  }else{
+    if(send_cmd(CMD18, sector) == 0x00){
+      while(count){
+        if(!read_block(buff, 512)) break;
+        buff += 512;
+        count--;
+      }
+    }
+
+    send_cmd(CMD12, 0);
+  }
+  sd_deselect();
+  return count ? RES_ERROR : RES_OK;
+}
+
+
+void timer_proc(){
+  uint8_t n;
+  n = Timer1;
+  if(n) n--;
+  n = Timer2;
+  if(n) n--;
 }
