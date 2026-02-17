@@ -331,8 +331,33 @@ DRESULT disk_write (
 	if (pdrv || !count) return RES_PARERR;		/* Check parameter */
 	if (SD_Status & STA_NOINIT) return RES_NOTRDY;	/* Check drive status */
 	if (SD_Status & STA_PROTECT) return RES_WRPRT;	/* Check write protect */
+  
+  if (!(CardType & CT_BLOCK)) sector *= 512;	// Converts from LBA to BA for non block addressed cards
 
-  return RES_OK;
+
+  if(count == 1){
+    if(send_cmd(CMD24, sector) == 0x00){
+      send_byte(0xFF);
+      if(write_block(buff, 0xFE)){// check to see if data was accepted
+        count = 0;
+      } 
+    }
+  }else{
+    if(send_cmd(CMD25, sector) == 0x00){
+      send_byte(0xFF);
+      uint8_t res;
+      while(count){
+        if(!write_block(buff, 0xFC)) break;
+        count--;
+        wait_sd_ready();
+      }
+      send_byte(0xFD);
+    }
+  }
+
+  sd_deselect();
+
+  return count ? RES_ERROR : RES_OK;
 
 }
 

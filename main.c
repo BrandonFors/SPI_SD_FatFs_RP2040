@@ -45,4 +45,23 @@ int main() {
   }else{
     printf("Read 5 Blocks failed\n");
   }
+
+  printf("Writing 1 Block\n");
+  uint8_t block_test_4[512] = {0};
+  result = disk_write(0, block_test_4, 67, 1);
+  if(result == RES_OK){
+    printf("Write 1 Block successfully\n");
+  }else{
+    printf("Write 1 Block failed\n");
+  }
+
+
+  printf("Writing 5 Blocks\n");
+  uint8_t block_test_5[512*5] = {0};
+  result = disk_write(0, block_test_5, 67, 5);
+  if(result == RES_OK){
+    printf("Write 5 Blocks successfully\n");
+  }else{
+    printf("Write 5 Blocks failed\n");
+  }
 }
