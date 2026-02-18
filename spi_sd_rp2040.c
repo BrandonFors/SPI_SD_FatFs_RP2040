@@ -402,3 +402,23 @@ void timer_proc(){
   n = Timer2;
   if(n) n--;
 }
+
+
+DRESULT disk_ioctl (
+  BYTE pdrv,     /* [IN] Drive number */
+  BYTE cmd,      /* [IN] Control command code */
+  void* buff     /* [I/O] Parameter and data buffer */
+){
+
+  if(pdrv) return RES_PARERR;
+
+  if(SD_Status & STA_NOINIT) return RES_NOTRDY;
+
+
+  //handle necessary ioctl
+
+
+  return RES_ERR;
+
+
+}

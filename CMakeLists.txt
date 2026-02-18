@@ -35,7 +35,11 @@ pico_sdk_init()
 
 # Add executable. Default name is the project name, version 0.1
 
-add_executable(spi_sd_rp2040 main.c spi_sd_rp2040.c)
+add_executable(spi_sd_rp2040 
+               main.c 
+               spi_sd_rp2040.c
+               ff16/source/ff.c
+               ff16/source/ffsystem.c)
 
 pico_set_program_name(spi_sd_rp2040 "spi_sd_rp2040")
 pico_set_program_version(spi_sd_rp2040 "0.1")
