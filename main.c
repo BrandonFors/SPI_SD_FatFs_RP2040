@@ -5,19 +5,62 @@
 #include "pico/stdlib.h"
 #include "hardware/spi.h"
 #include "pico/time.h"
+#include <string.h>
 
 FATFS FatFs;
 
 int main() {
+  
   stdio_init_all();
 
-  sleep_ms(5000);
-  f_mount(&FatFs, "", 0);
+  printf("Start\n");
+
+  FRESULT fr;
   FIL fil;
-  f_open(&fil, "data.csv", FA_OPEN_APPEND | FA_WRITE | FA_READ) || printf("Open failed");
-  f_printf(&fil, "%s", "Balls") || printf("Write Failed");
-  f_close(&fil) || printf("Closed Failed");
-  // f_unmount(&FatFs);
+  int mounted = 0;
+  int opened = 0;
+
+  fr = f_mount(&FatFs, "", 1);
+  if (fr != FR_OK) {
+    printf("f_mount failed: %d\n", (int)fr);
+    goto done;
+  }
+  mounted = 1;
+  printf("Mounted OK\n");
+
+  fr = f_open(&fil, "data.csv", FA_OPEN_APPEND | FA_WRITE);
+  if (fr != FR_OK) {
+    printf("f_open failed: %d\n", (int)fr);
+    goto done;
+  }
+  opened = 1;
+  printf("Opened data.csv OK\n");
+
+  const char *s = "balls\r\n";
+  UINT bw = 0;
+  fr = f_write(&fil, s, (UINT)strlen(s), &bw);
+  if (fr != FR_OK) {
+    printf("f_write failed: %d\n", (int)fr);
+    goto done;
+  }
+  if (bw != (UINT)strlen(s)) {
+    printf("f_write short write: wrote %u of %u\n", (unsigned)bw, (unsigned)strlen(s));
+    goto done;
+  }
+  printf("Wrote %u bytes\n", (unsigned)bw);
+
+done:
+  if (opened) {
+    fr = f_close(&fil);
+    printf("f_close: %d\n", (int)fr);
+  }
+  if (mounted) {
+    fr = f_unmount("");
+    printf("f_unmount: %d\n", (int)fr);
+  }
+
+  printf("End\n");
+  return 0;
 
 
 

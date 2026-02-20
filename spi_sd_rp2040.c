@@ -395,15 +395,6 @@ DRESULT disk_read (
 }
 
 
-void timer_proc(){
-  uint8_t n;
-  n = Timer1;
-  if(n) n--;
-  n = Timer2;
-  if(n) n--;
-}
-
-
 DRESULT disk_ioctl (
   BYTE pdrv,     /* [IN] Drive number */
   BYTE cmd,      /* [IN] Control command code */
@@ -414,11 +405,59 @@ DRESULT disk_ioctl (
 
   if(SD_Status & STA_NOINIT) return RES_NOTRDY;
 
+  // will hold 16 bit csd data 
+  uint8_t csd[16];
+  uint8_t exp;
+  uint8_t res;
+  uint32_t c_size;
 
-  //handle necessary ioctl
+  switch(cmd){
+    case (CTRL_SYNC):
+      //gives clock cycles to SD card to make sure the last operation is complete
+      if(wait_sd_ready()) return RES_OK;
+      break;
+    
+    // here we want to get the total amount of 512 bit sectors that 
+    case(GET_SECTOR_COUNT):
+      //send cmd that will request CSD and read in CSD
+      if(send_cmd(CMD9,0) == 0x00 && read_block(csd, 16)){
+        //SDCv2
+        if(csd[0] >> 6 == 1){
+          c_size = csd[9] + ((uint16_t) csd[8] << 8) + ((uint32_t)(csd[7] & 0x3F) << 16) + 1;
+          *(LBA_t*)buff = c_size << 10;
+        //SDCv1
+        }else{
+          //the following calculation is a simplification of the equation given by SDv1 Specifications constructing storage size
+          //construct c_size (12 bits) from the csd byte array
+          c_size = (csd[8] >> 6) + ((uint16_t)csd[7] << 2) + ((uint32_t)(csd[6] & 0x03)  << 10) + 1;
+          exp = (csd[10] >> 7) + ((csd[9] & 0x03) << 1) + (csd[5] >> 4) - 7;
+          *(LBA_t*)buff = c_size << exp;
+        }
+        res = RES_OK;
+      }
+      break;  
+      //SD cards manage their blocks internally
+    case(GET_BLOCK_SIZE):
+      *(DWORD*)buff = 1;
+      return RES_OK;
+      break;
+    default:
 
 
-  return RES_ERR;
+  }
+
+  return RES_ERROR;
 
 
+}
+
+
+
+
+void timer_proc(){
+  uint8_t n;
+  n = Timer1;
+  if(n) n--;
+  n = Timer2;
+  if(n) n--;
 }
