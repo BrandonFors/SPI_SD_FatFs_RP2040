@@ -79,7 +79,7 @@ uint8_t send_byte(uint8_t byte){
   uint8_t res = 0;
 
   spi_write_read_blocking(SPI_PORT, &byte, &res, 1);
-
+  while (spi_is_busy(SPI_PORT));
   return res;
 }
 
@@ -88,6 +88,7 @@ int wait_sd_ready(){ // 1 if success and 0 if fail
   while(res != 0xFF){
     res = send_byte(0xFF);
   }
+  while (spi_is_busy(SPI_PORT));
   return 1;
 }
 
@@ -172,7 +173,8 @@ uint8_t send_cmd(uint8_t cmd, uint32_t arg){
   while ((res & 0x80) && n > 0){ //a response will have a leading 0 
     res = send_byte(0xFF);
     n--;
-  } 
+  }
+  while (spi_is_busy(SPI_PORT));
   return res;
 }
 
@@ -202,7 +204,7 @@ uint8_t write_block( // returns 1 for success and 0 for fail
     send_byte(0xFF);
     //get response byte
     uint8_t resp = send_byte(0xFF);
-  if ((resp & 0x1F) != 0x05) return 0;
+    if ((resp & 0x1F) != 0x05) return 0;
   }
   
   return 1;
@@ -280,7 +282,7 @@ DSTATUS disk_initialize (BYTE pdrv){
       spi_read_blocking(SPI_PORT, 0xFF, ocr, 4);
       //if the high capacity bit is set, we have an SDCv2 card with HC or XC which means we need to address by block of 521 bytes
       //otherwise we have a standard SDCv2
-      sd_type = (ocr[0] & 0x40) ? CT_SDC2 | CT_BLOCK : CT_SDC2;
+      sd_type = (ocr[0] & 0x40) ? (CT_SDC2 | CT_BLOCK) : CT_SDC2;
 
     }
 
@@ -303,6 +305,7 @@ DSTATUS disk_initialize (BYTE pdrv){
   }
 
   if(sd_type){ //success
+    CardType = sd_type;
     SD_Status &= ~STA_NOINIT; // clear STA_NOINIT flag
   }else{ // Init Failed
     SD_Status = STA_NOINIT;
@@ -348,6 +351,7 @@ DRESULT disk_write (
       uint8_t res;
       while(count){
         if(!write_block(buff, 0xFC)) break;
+        buff += 512;
         count--;
         wait_sd_ready();
       }
@@ -408,13 +412,16 @@ DRESULT disk_ioctl (
   // will hold 16 bit csd data 
   uint8_t csd[16];
   uint8_t exp;
-  uint8_t res;
+  DRESULT res;
   uint32_t c_size;
+
+  res = RES_ERROR;
 
   switch(cmd){
     case (CTRL_SYNC):
       //gives clock cycles to SD card to make sure the last operation is complete
-      if(wait_sd_ready()) return RES_OK;
+      if(sd_select()) res = RES_OK;
+      sd_deselect();
       break;
     
     // here we want to get the total amount of 512 bit sectors that 
@@ -422,7 +429,7 @@ DRESULT disk_ioctl (
       //send cmd that will request CSD and read in CSD
       if(send_cmd(CMD9,0) == 0x00 && read_block(csd, 16)){
         //SDCv2
-        if(csd[0] >> 6 == 1){
+        if((csd[0] >> 6) == 1){
           c_size = csd[9] + ((uint16_t) csd[8] << 8) + ((uint32_t)(csd[7] & 0x3F) << 16) + 1;
           *(LBA_t*)buff = c_size << 10;
         //SDCv1
@@ -439,14 +446,15 @@ DRESULT disk_ioctl (
       //SD cards manage their blocks internally
     case(GET_BLOCK_SIZE):
       *(DWORD*)buff = 1;
-      return RES_OK;
+      res = RES_OK;
       break;
     default:
+      res = RES_ERROR;
 
 
   }
 
-  return RES_ERROR;
+  return res;
 
 
 }

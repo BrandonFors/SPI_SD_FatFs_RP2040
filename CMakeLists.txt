@@ -39,7 +39,9 @@ add_executable(spi_sd_rp2040
                main.c 
                spi_sd_rp2040.c
                ff16/source/ff.c
-               ff16/source/ffsystem.c)
+               ff16/source/ffsystem.c
+               tests/chan_test/chan_test.c
+               tests/custom_test/custom_test.c)
 
 pico_set_program_name(spi_sd_rp2040 "spi_sd_rp2040")
 pico_set_program_version(spi_sd_rp2040 "0.1")
@@ -56,6 +58,8 @@ target_link_libraries(spi_sd_rp2040
 target_include_directories(spi_sd_rp2040 PRIVATE
         ${CMAKE_CURRENT_LIST_DIR}
         ${CMAKE_CURRENT_LIST_DIR}/ff16/source/
+        ${CMAKE_CURRENT_LIST_DIR}/tests/chan_test/
+        ${CMAKE_CURRENT_LIST_DIR}/tests/custom_test/
 )
 
 # Add any user requested libraries
