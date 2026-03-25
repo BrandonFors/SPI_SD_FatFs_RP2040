@@ -1,20 +1,26 @@
 #include "ff.h"
 #include "diskio.h"
 #include <stdint.h>
+#include <stdbool.h>
 #include "pico/stdlib.h"
 #include "hardware/gpio.h"
 #include "hardware/spi.h"
-#include "pico/time.h"
+#include "pico/aon_timer.h"
 
 // SPI Defines
 // We are going to use SPI 0, and allocate it to the following GPIO pins
+// #define SPI_PORT spi0
+// #define PIN_MISO 16
+// #define PIN_CS   17
+// #define PIN_SCK  18
+// #define PIN_MOSI 19
+
 #define SPI_PORT spi0
-#define PIN_MISO 16
-#define PIN_CS   17
-#define PIN_SCK  18
-#define PIN_MOSI 19
-
-
+// #define SD_DET_PIN 1
+#define PIN_SCK 2
+#define PIN_MOSI 3
+#define PIN_MISO 4
+#define PIN_CS  5
 
 /* MMC/SD command */
 #define CMD0	(0)			/* GO_IDLE_STATE */
@@ -46,24 +52,51 @@ static volatile DSTATUS SD_Status = STA_NOINIT;	/* Physical drive status */
 static volatile UINT Timer1, Timer2;		/* 1kHz decrement timer stopped at zero (disk_timerproc()) */
 static BYTE CardType;	/* Card type flags */
 
+static inline uint32_t get_ms(void){
 
+    return to_ms_since_boot(get_absolute_time());
+
+}
 
 /*-----------------------------------------------------------------------*/
 /* SPI controls for RP2040                                               */
 /*-----------------------------------------------------------------------*/
 
-void init_sd_spi(void)
+bool init_sd_spi()
 {
+  //this struct will set aon timer to jan 1st 1900 00:00:00, as the default time if calendar_time is null
+  struct tm calendar_time_def = {
+    .tm_sec = 0,
+    .tm_min = 0,
+    .tm_hour = 0,
+    .tm_mday = 1,
+    .tm_mon = 0,
+    .tm_year = 0,
+    .tm_wday = 0,
+    .tm_yday = 0,
+    .tm_isdst = 0
+  };
+
   // SPI initialisation. This example will use SPI at 1MHz.
   spi_init(SPI_PORT, slow_baud);
   gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
   gpio_set_function(PIN_CS,   GPIO_FUNC_SIO);
   gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI);
   gpio_set_function(PIN_MOSI, GPIO_FUNC_SPI);
+  //internal pull up
+  gpio_pull_up(PIN_MISO);
   
   // Chip select is active-low, so we'll initialise it to a driven-high state
   gpio_set_dir(PIN_CS, GPIO_OUT);
   gpio_put(PIN_CS, 1);
+
+  //start aon timer if it isn't started already
+  if(!aon_timer_is_running()){
+    if(!aon_timer_start_calendar(&calendar_time_def)){
+        return false;
+    }
+    return true;
+  }
   
   sleep_ms(10);
 
@@ -83,9 +116,11 @@ uint8_t send_byte(uint8_t byte){
   return res;
 }
 
-int wait_sd_ready(){ // 1 if success and 0 if fail
+int wait_sd_ready(uint32_t tm){ // 1 if success and 0 if fail
+  
+  uint32_t t = get_ms();
   uint8_t res = send_byte(0xFF);
-  while(res != 0xFF){
+  while(res != 0xFF &&  get_ms() < (t + tm)){
     res = send_byte(0xFF);
   }
   while (spi_is_busy(SPI_PORT));
@@ -111,7 +146,7 @@ int sd_select(){
   send_byte(0xFF); 
   //makes sure final clock cycle finishes before returning
   while (spi_is_busy(SPI_PORT));
-  if(wait_sd_ready()) return 1;
+  if(wait_sd_ready(500)) return 1;
 
   sd_deselect();
   return 0;
@@ -178,14 +213,7 @@ uint8_t send_cmd(uint8_t cmd, uint32_t arg){
   return res;
 }
 
-// Needed?
-// uint8_t send_multi_bytes(
-//   const uint8_t *buff,
-//   uint8_t len,
-// ){
 
-
-// }
 
 //writes a data packet: see -> https://elm-chan.org/docs/mmc/mmc_e.html
 uint8_t write_block( // returns 1 for success and 0 for fail
@@ -193,7 +221,7 @@ uint8_t write_block( // returns 1 for success and 0 for fail
   uint8_t token
 ){
   //need to check to see if SD is ready to recieve with included timeout
-  if(!wait_sd_ready()) return 0;
+  if(!wait_sd_ready(500)) return 0;
 
   send_byte(token);
   //send data if the token was not a stop transmission token
@@ -217,8 +245,11 @@ uint8_t read_block( // returns 1 for success and 0 for fail
 ){
   //add har dware timer timeout functionality
 	//read until start token squired
+  const uint32_t timeout = 200;
+  uint32_t t = get_ms();
+
   uint8_t token = send_byte(0xFF);
-  while(token == 0xFF){
+  while(token == 0xFF && get_ms() < t+timeout){
     token = send_byte(0xFF);
   }
   if(token != 0xFE) return 0;
@@ -239,7 +270,8 @@ DSTATUS disk_initialize (BYTE pdrv){
   //will hold data for init CMDS that have an ocr component in their response
   uint8_t ocr[4];
   uint8_t sd_type;
-  
+  uint32_t t;
+  const uint32_t timeout = 1000; /* Initialization timeout = 1 sec */
   if (pdrv) return STA_NOINIT;
   init_sd_spi();
 
@@ -265,6 +297,7 @@ DSTATUS disk_initialize (BYTE pdrv){
 
   //try CMD8 and check to see if the response is valid with no illegal flags
   if(send_cmd(CMD8, 0x1AA) == 0x01){
+    t = get_ms();
     spi_read_blocking(SPI_PORT, 0xFF, ocr, 4);
     if (ocr[2] == 0x01 && ocr[3] == 0xAA) {
       //the card is of type SDCv2+ in this case	
@@ -272,7 +305,7 @@ DSTATUS disk_initialize (BYTE pdrv){
       send_cmd(CMD55,0);
       //ACMD command with high capacity bit set 
       uint8_t adcm_res = send_cmd(ACMD41, (1UL << 30));
-      while(adcm_res && 0x01){ //while the card is still idle, send CMD55 and ACMD41 again
+      while(get_ms() < t + timeout && adcm_res && 0x01){ //while the card is still idle, send CMD55 and ACMD41 again
         send_cmd(CMD55,0);
         adcm_res = send_cmd(ACMD41, (1UL << 30));
       }
@@ -287,7 +320,7 @@ DSTATUS disk_initialize (BYTE pdrv){
     }
 
   //try  CMD58 and check if CMD58 had an okay response
-  }else if(send_cmd(CMD58, 0) == 0x01){
+  }else if(get_ms() < t + timeout && send_cmd(CMD58, 0) == 0x01){
     //card is of type SDCv1
     spi_read_blocking(SPI_PORT, 0xFF, ocr, 4);
     //check if card supports 2.7-3.3v
@@ -296,7 +329,7 @@ DSTATUS disk_initialize (BYTE pdrv){
       //notifies SD of ACMD
       send_cmd(CMD55,0);
       uint8_t adcm_res = send_cmd(ACMD41, (1UL << 30));
-      while(adcm_res && 0x01){ //while the card is still idle, send CMD55 and ACMD41 again
+      while(get_ms() < t + timeout && adcm_res && 0x01){ //while the card is still idle, send CMD55 and ACMD41 again
         send_cmd(CMD55,0);
         adcm_res = send_cmd(ACMD41, (1UL << 30));
       }
@@ -353,7 +386,7 @@ DRESULT disk_write (
         if(!write_block(buff, 0xFC)) break;
         buff += 512;
         count--;
-        wait_sd_ready();
+        wait_sd_ready(500);
       }
       send_byte(0xFD);
     }
@@ -458,6 +491,23 @@ DRESULT disk_ioctl (
 
 
 }
+
+#if !FF_FS_NORTC && !FF_FS_READONLY
+DWORD get_fattime (void)
+{
+    struct tm calendar_time = {0};
+	/* Get local time */
+	if (!aon_timer_get_time_calendar(&calendar_time)) return 0;
+
+	/* Pack date and time into a DWORD variable */
+	return	  ((DWORD)(calendar_time.tm_year - 80) << 25) // tm_year is stored as yrs since 1900, we need yrs since 1980
+			| ((DWORD)(calendar_time.tm_mon + 1) << 21) // shift range from 0-11 to 1-12
+			| ((DWORD)calendar_time.tm_mday << 16)
+			| ((DWORD)calendar_time.tm_hour << 11)
+			| ((DWORD)calendar_time.tm_min << 5)
+			| ((DWORD)calendar_time.tm_sec >> 1); // secons is stored as sec/2
+}
+#endif
 
 
 

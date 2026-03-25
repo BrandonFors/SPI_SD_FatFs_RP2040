@@ -4,6 +4,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
+#include "pico/stdlib.h" 
 
 void write_to_csv_test(){
 
@@ -35,9 +36,17 @@ void write_to_csv_test(){
   UINT bw = 0;
   fr = f_write(&fil, s, (UINT)strlen(s), &bw);
   if (fr != FR_OK) {
-    printf("f_write failed: %d\n", (int)fr);
+    printf("f_write 1 failed: %d\n", (int)fr);
     goto done;
   }
+  sleep_ms(5000);
+  s = "Defund the CubeSAT\r\n";
+    fr = f_write(&fil, s, (UINT)strlen(s), &bw);
+  if (fr != FR_OK) {
+    printf("f_write 2 failed: %d\n", (int)fr);
+    goto done;
+  }
+  
   if (bw != (UINT)strlen(s)) {
     printf("f_write short write: wrote %u of %u\n", (unsigned)bw, (unsigned)strlen(s));
     goto done;

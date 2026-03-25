@@ -66,6 +66,7 @@ target_include_directories(spi_sd_rp2040 PRIVATE
 target_link_libraries(spi_sd_rp2040 
         hardware_spi
         hardware_gpio
+        pico_aon_timer
         )
 
 pico_add_extra_outputs(spi_sd_rp2040)
