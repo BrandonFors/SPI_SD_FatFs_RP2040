@@ -45,7 +45,8 @@
 #define CMD58	(58)		/* READ_OCR */
 
 
-#define slow_baud 400*1000
+#define SLOW_CLK 400*1000
+#define FAST_CLK 20*1000*1000
 
 
 static volatile DSTATUS SD_Status = STA_NOINIT;	/* Physical drive status */
@@ -78,7 +79,7 @@ bool init_sd_spi()
   };
 
   // SPI initialisation. This example will use SPI at 1MHz.
-  spi_init(SPI_PORT, slow_baud);
+  spi_init(SPI_PORT, FAST_CLK);
   gpio_set_function(PIN_MISO, GPIO_FUNC_SPI);
   gpio_set_function(PIN_CS,   GPIO_FUNC_SIO);
   gpio_set_function(PIN_SCK,  GPIO_FUNC_SPI);
@@ -274,7 +275,7 @@ DSTATUS disk_initialize (BYTE pdrv){
   const uint32_t timeout = 1000; /* Initialization timeout = 1 sec */
   if (pdrv) return STA_NOINIT;
   init_sd_spi();
-
+  spi_set_baudrate(SPI_PORT,SLOW_CLK);
   if(SD_Status & STA_NODISK) return SD_Status;
 
   //80 clock cycles to prep 
@@ -292,6 +293,7 @@ DSTATUS disk_initialize (BYTE pdrv){
   //if CMD0 failed, return STA_NOINIT according Chan FatFS
   if(n <= 0){
     SD_Status = STA_NOINIT;
+    spi_set_baudrate(SPI_PORT,FAST_CLK);
     return SD_Status;
   }
 
@@ -343,6 +345,7 @@ DSTATUS disk_initialize (BYTE pdrv){
   }else{ // Init Failed
     SD_Status = STA_NOINIT;
   }
+  spi_set_baudrate(SPI_PORT,FAST_CLK);
 
   return SD_Status;
 

@@ -39,7 +39,6 @@ void write_to_csv_test(){
     printf("f_write 1 failed: %d\n", (int)fr);
     goto done;
   }
-  sleep_ms(5000);
   s = "Defund the CubeSAT\r\n";
     fr = f_write(&fil, s, (UINT)strlen(s), &bw);
   if (fr != FR_OK) {
