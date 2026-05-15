@@ -19,9 +19,12 @@ Run the `main.c` with `run_chan_test()` *(this will wipe your card)* and observe
 
 ChanFATFS:
 https://www.elm-chan.org/fsw/ff/
+
 About SD-SPI:
 https://www.dejazzer.com/ee379/lecture_notes/lec12_sd_card.pdf
+
 Official SD Docs:
 https://www.sdcard.org/downloads/pls/
+
 Refer to section 7 here:
 https://academy.cba.mit.edu/classes/networking_communications/SD/SD.pdf
