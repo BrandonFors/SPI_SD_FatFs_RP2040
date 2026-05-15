@@ -19,10 +19,10 @@ uint8_t send_cmd(uint8_t cmd, uint32_t arg);
 DSTATUS disk_status (BYTE pdrv);
 DSTATUS disk_initialize (BYTE pdrv);
 DRESULT disk_read (
-  BYTE pdrv,     /* [IN] Physical drive number */
-  BYTE* buff,    /* [OUT] Pointer to the read data buffer */
-  LBA_t sector,  /* [IN] Start sector number */
-  UINT count     /* [IN] Number of sectros to read */
+    BYTE pdrv,     /* [IN] Physical drive number */
+    BYTE* buff,    /* [OUT] Pointer to the read data buffer */
+    LBA_t sector,  /* [IN] Start sector number */
+    UINT count     /* [IN] Number of sectros to read */
 );
 
 #endif

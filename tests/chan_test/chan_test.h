@@ -8,4 +8,5 @@ int test_diskio (
     UINT sz_buff    /* Size of the working buffer in unit of byte */
 );
 
+void run_chan_test();
 #endif

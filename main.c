@@ -11,12 +11,13 @@
 
 int main() {
   
-  stdio_init_all();
+stdio_init_all();
 
-  sleep_ms(5000);
+    //small delay to 
+    sleep_ms(5000);
 
-  write_to_csv_test();
+    run_chan_test();
 
 
-  return 0;
+    return 0;
 }
